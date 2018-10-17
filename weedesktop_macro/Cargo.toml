@@ -1,0 +1,15 @@
+[package]
+name = "weedesktop_macro"
+version = "0.1.0"
+authors = ["Andreas Runfalk <andreas@runfalk.se>"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "*"
+quote = "*"
+syn = { version = "*", features = ["full"] }
+
+[build-dependencies]
+bindgen = "*"

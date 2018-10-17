@@ -1,0 +1,16 @@
+[package]
+name = "weedesktop"
+version = "0.1.0"
+authors = ["Andreas Runfalk <andreas@runfalk.se>"]
+
+[lib]
+name = "weedesktop"
+crate-type = ["dylib"]
+
+[dependencies]
+dbus = "*"
+libc = "*"
+weedesktop_macro = { path = "weedesktop_macro" }
+
+[build-dependencies]
+bindgen = "*"
