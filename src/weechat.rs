@@ -1,7 +1,7 @@
-use std::ffi::{CStr, CString, c_void};
+use ffi;
+use std::ffi::{c_void, CStr, CString};
 use std::ptr;
 use std::time::Duration;
-use ffi;
 
 pub type Result<T> = std::result::Result<T, ()>;
 
@@ -41,7 +41,7 @@ pub enum HdataValue<'a> {
     Str(&'a CStr),
     Ptr(*mut c_void),
     Time(libc::time_t),
-    Hashtable(*mut ffi::t_hashtable),  // TODO: Implement Hashtable as type
+    Hashtable(*mut ffi::t_hashtable), // TODO: Implement Hashtable as type
     None,
 }
 
@@ -55,27 +55,31 @@ macro_rules! call_attr {
 }
 
 macro_rules! try_ptr {
-    ($ptr:expr) => {
-        {
-            // We must evaluate $ptr here or we will run the expression twice
-            let ptr = $ptr;
-            if ptr.is_null() {
-                return Err(());
-            } else {
-                ptr
-            }
+    ($ptr:expr) => {{
+        // We must evaluate $ptr here or we will run the expression twice
+        let ptr = $ptr;
+        if ptr.is_null() {
+            return Err(());
+        } else {
+            ptr
         }
-    };
+    }};
 }
 
 impl<'a> Buffer<'a> {
     fn new(plugin: &'a Plugin, ptr: *mut ffi::t_gui_buffer) -> Self {
-        Self { plugin: plugin, ptr }
+        Self { plugin, ptr }
     }
 
     pub fn command(&self, cmd: &str) -> CallResult {
         let ccmd = CString::new(cmd).unwrap();
-        match call_attr!(self.plugin.ptr, command, self.plugin.ptr, self.ptr, ccmd.as_ptr()) {
+        match call_attr!(
+            self.plugin.ptr,
+            command,
+            self.plugin.ptr,
+            self.ptr,
+            ccmd.as_ptr()
+        ) {
             ffi::WEECHAT_RC_OK => Ok(()),
             ffi::WEECHAT_RC_ERROR => Err(()),
             _ => unreachable!(),
@@ -83,23 +87,34 @@ impl<'a> Buffer<'a> {
     }
 
     pub fn hdata(&self) -> Result<BoundHdata> {
-        Ok(self.plugin.hdata_get("buffer")?.bind(self.ptr as *mut c_void))
+        Ok(self
+            .plugin
+            .hdata_get("buffer")?
+            .bind(self.ptr as *mut c_void))
     }
 }
 
 impl<'a> Hdata<'a> {
     fn new(plugin: &'a Plugin, ptr: *mut ffi::t_hdata) -> Self {
-        Self { plugin: plugin, ptr }
+        Self { plugin, ptr }
     }
 
     pub fn bind_list(&self, list_name: &str) -> Result<BoundHdata> {
         let clname = CString::new(list_name).or(Err(()))?;
-        let ptr = try_ptr!(call_attr!(self.plugin.ptr, hdata_get_list, self.ptr, clname.as_ptr()));
+        let ptr = try_ptr!(call_attr!(
+            self.plugin.ptr,
+            hdata_get_list,
+            self.ptr,
+            clname.as_ptr()
+        ));
         Ok(self.bind(ptr as *mut c_void))
     }
 
     pub fn bind(&self, ptr: *mut c_void) -> BoundHdata<'a> {
-        BoundHdata { hdata: self.clone(), ptr }
+        BoundHdata {
+            hdata: self.clone(),
+            ptr,
+        }
     }
 
     fn get_type(&self, name: &str) -> i32 {
@@ -199,13 +214,20 @@ impl<'a> BoundHdata<'a> {
     }
 }
 
-pub extern "C" fn hook_timer_callback(ptr: *const c_void, data: *mut c_void, remaining_calls: i32) -> i32 {
+pub extern "C" fn hook_timer_callback(
+    ptr: *const c_void,
+    data: *mut c_void,
+    remaining_calls: i32,
+) -> i32 {
     if data.is_null() {
         return ffi::WEECHAT_RC_ERROR;
     }
 
     let callback = unsafe { *(data as *mut TimerHook) };
-    match callback(&Plugin::new(ptr as *mut ffi::t_weechat_plugin), remaining_calls) {
+    match callback(
+        &Plugin::new(ptr as *mut ffi::t_weechat_plugin),
+        remaining_calls,
+    ) {
         Ok(_) => ffi::WEECHAT_RC_OK,
         Err(_) => ffi::WEECHAT_RC_ERROR,
     }
@@ -235,14 +257,18 @@ impl Plugin {
         self.print(msg);
     }
 
-    pub fn hook_timer(&self, interval: Duration, max_calls: i32, callback: TimerHook) -> Result<Hook> {
+    pub fn hook_timer(
+        &self,
+        interval: Duration,
+        max_calls: i32,
+        callback: TimerHook,
+    ) -> Result<Hook> {
         // Allocate a blob big enough to hold a pointer to a function. This will be
         // used to allow hook_timer_callback to dispatch the callback to the given
         // TimerHook. We must use malloc since Weechat will automatically free the
         // pointer we give when the plugin is tearing down
-        let callback_ptr = try_ptr!(unsafe {
-             libc::malloc(std::mem::size_of::<TimerHook>()) as *mut TimerHook
-        });
+        let callback_ptr =
+            try_ptr!(unsafe { libc::malloc(std::mem::size_of::<TimerHook>()) as *mut TimerHook });
 
         // Assign function pointer to the datablob that is sent to the callback hook
         unsafe {

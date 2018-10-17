@@ -1,5 +1,5 @@
-extern crate libc;
 extern crate dbus;
+extern crate libc;
 #[macro_use]
 extern crate weedesktop_macro;
 
