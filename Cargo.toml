@@ -8,9 +8,14 @@ name = "weedesktop"
 crate-type = ["dylib"]
 
 [dependencies]
-dbus = "*"
+cfg-if = "*"
 libc = "*"
 weedesktop_macro = { path = "weedesktop_macro" }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+dbus = "*"
+
+[target.'cfg(target_os = "macos")'.dependencies]
 
 [build-dependencies]
 bindgen = "*"

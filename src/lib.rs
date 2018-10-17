@@ -1,14 +1,18 @@
+#[macro_use]
+extern crate cfg_if;
+#[cfg(all(unix, not(target_os = "macos")))]
 extern crate dbus;
 extern crate libc;
 #[macro_use]
 extern crate weedesktop_macro;
 
 mod ffi;
+mod platform;
 mod weechat;
 
-use dbus::{BusType, Connection, Message};
 use std::time::Duration;
 use weechat::{CallResult, HdataValue, Plugin, Result};
+use platform::screensaver_is_active;
 
 #[plugin_info]
 pub static NAME: &str = "weedesktop";
@@ -21,18 +25,6 @@ pub static VERSION: &str = "0.1";
 #[plugin_info]
 pub static LICENSE: &str = "MIT";
 
-fn screensaver_is_active() -> Result<bool> {
-    let conn = Connection::get_private(BusType::Session).or(Err(()))?;
-    let msg = Message::new_method_call(
-        "org.gnome.ScreenSaver",
-        "/org/gnome/ScreenSaver",
-        "org.gnome.ScreenSaver",
-        "GetActive",
-    ).or(Err(()))?;
-
-    let resp = conn.send_with_reply_and_block(msg, 100).or(Err(()))?;
-    Ok(resp.get1().ok_or(())?)
-}
 
 fn is_away(plugin: &Plugin) -> Result<bool> {
     // TODO: We actually only check one server

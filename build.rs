@@ -26,9 +26,29 @@ impl ParseCallbacks for Fixer {
     }
 }
 
+#[cfg(all(unix, not(target_os = "macos")))]
+fn get_weechat_inc_dir() -> PathBuf {
+    PathBuf::from("/usr/include/weechat")
+}
+
+#[cfg(target_os = "macos")]
+fn get_weechat_inc_dir() -> PathBuf {
+    // We assume Homebrew is installed since there aren't any more probable
+    // alternatives
+    let output = std::process::Command::new("brew")
+        .arg("--prefix")
+        .arg("weechat")
+        .output()
+        .expect("Failed to locate Weechat using Homebrew");
+    let string = String::from_utf8(output.stdout).expect("Failed to parse brew output");
+    PathBuf::from(string.trim_right()).join("include/weechat")
+}
+
 fn main() {
-    let inc_path =
-        PathBuf::from(env::var("WEECHAT_INC_DIR").unwrap_or("/usr/include/weechat".to_owned()));
+    let inc_path = match env::var("WEECHAT_INC_DIR") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => get_weechat_inc_dir(),
+    };
     let bindings = bindgen::Builder::default()
         .header(inc_path.join("weechat-plugin.h").to_str().unwrap())
         .layout_tests(false)
