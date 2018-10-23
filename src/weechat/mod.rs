@@ -5,6 +5,9 @@ use std::ffi::{c_void, CStr, CString};
 use std::ptr;
 use std::time::Duration;
 
+#[macro_use]
+mod macros;
+
 pub type Result<T> = std::result::Result<T, ()>;
 
 pub type CallResult = Result<()>;
@@ -49,27 +52,6 @@ pub enum HdataValue<'a> {
     Time(libc::time_t),
     Hashtable(*mut ffi::t_hashtable), // TODO: Implement Hashtable as type
     None,
-}
-
-macro_rules! call_attr {
-    ($ptr:expr, $attr:ident $(,$arg:expr)*) => {
-        match (*$ptr).$attr {
-            Some(f) => f($($arg),*),
-            None => unreachable!(),
-        }
-    };
-}
-
-macro_rules! try_ptr {
-    ($ptr:expr) => {{
-        // We must evaluate $ptr here or we will run the expression twice
-        let ptr = $ptr;
-        if ptr.is_null() {
-            return Err(());
-        } else {
-            ptr
-        }
-    }};
 }
 
 impl<'a> Buffer<'a> {
