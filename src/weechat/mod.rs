@@ -11,7 +11,7 @@ mod macros;
 mod callbacks;
 mod hdata;
 
-use self::callbacks::TimerHook;
+use self::callbacks::{malloc_callback, TimerHook};
 pub use self::hdata::Hdata;
 
 pub type Result<T> = std::result::Result<T, ()>;
@@ -101,18 +101,6 @@ impl Plugin {
         max_calls: i32,
         callback: TimerHook,
     ) -> Result<Hook> {
-        // Allocate a blob big enough to hold a pointer to a function. This will be
-        // used to allow hook_timer_callback to dispatch the callback to the given
-        // TimerHook. We must use malloc since Weechat will automatically free the
-        // pointer we give when the plugin is tearing down
-        let callback_ptr =
-            try_ptr!(unsafe { libc::malloc(std::mem::size_of::<TimerHook>()) as *mut TimerHook });
-
-        // Assign function pointer to the datablob that is sent to the callback hook
-        unsafe {
-            *callback_ptr = callback;
-        }
-
         Ok(try_ptr!(unsafe {
             call_attr!(
                 self.ptr,
@@ -123,7 +111,7 @@ impl Plugin {
                 max_calls,
                 Some(callbacks::hook_timer),
                 self.ptr as *const c_void,
-                callback_ptr as *mut c_void
+                malloc_callback(callback)? as *mut c_void
             )
         }))
     }
