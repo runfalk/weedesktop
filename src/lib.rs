@@ -12,7 +12,7 @@ mod weechat;
 
 use platform::screensaver_is_active;
 use std::time::Duration;
-use weechat::{Buffer, CallResult, Plugin};
+use weechat::{Buffer, CallResult, Hdata, Plugin};
 
 #[plugin_info]
 pub static NAME: &str = "weedesktop";
@@ -52,8 +52,21 @@ fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
     Ok(())
 }
 
+fn open_url(plugin: &Plugin, _buffer: Hdata, _cmd: &str, _args: Vec<&str>) -> CallResult {
+    plugin.print("SUCCESS");
+    Ok(())
+}
+
 #[plugin_init]
 fn init(plugin: &Plugin) -> CallResult {
     plugin.hook_timer(Duration::from_secs(60), 0, check_screensaver)?;
+    plugin.hook_command(
+        "openurl",
+        "Opens the most recent URL in the current buffer",
+        None,
+        None,
+        None,
+        open_url,
+    )?;
     Ok(())
 }

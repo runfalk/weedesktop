@@ -11,7 +11,7 @@ mod macros;
 mod callbacks;
 mod hdata;
 
-use self::callbacks::{malloc_callback, TimerHook};
+use self::callbacks::{malloc_callback, CommandHook, TimerHook};
 pub use self::hdata::Hdata;
 
 pub type Result<T> = std::result::Result<T, ()>;
@@ -30,7 +30,6 @@ pub struct Buffer<'a> {
     plugin: &'a Plugin,
     ptr: *mut ffi::t_gui_buffer,
 }
-
 
 impl<'a> Buffer<'a> {
     fn new(plugin: &'a Plugin, ptr: *mut ffi::t_gui_buffer) -> Self {
@@ -93,6 +92,44 @@ impl Plugin {
             return;
         }
         self.print(msg);
+    }
+
+    pub fn hook_command<'a, D, A, H, C>(
+        &self,
+        cmd: &str,
+        description: D,
+        args: A,
+        args_help: H,
+        completion: C,
+        callback: CommandHook,
+    ) -> Result<Hook>
+    where
+        D: Into<Option<&'a str>>,
+        A: Into<Option<&'a str>>,
+        H: Into<Option<&'a str>>,
+        C: Into<Option<&'a str>>,
+    {
+        let ccmd = CString::new(cmd).or(Err(()))?;
+        let cdescription = CString::new(description.into().unwrap_or("")).or(Err(()))?;
+        let cargs = CString::new(args.into().unwrap_or("")).or(Err(()))?;
+        let cargs_help = CString::new(args_help.into().unwrap_or("")).or(Err(()))?;
+        let ccompletion = CString::new(completion.into().unwrap_or("")).or(Err(()))?;
+
+        Ok(try_ptr!(unsafe {
+            call_attr!(
+                self.ptr,
+                hook_command,
+                self.ptr,
+                ccmd.as_ptr(),
+                cdescription.as_ptr(),
+                cargs.as_ptr(),
+                cargs_help.as_ptr(),
+                ccompletion.as_ptr(),
+                Some(callbacks::hook_command),
+                self.ptr as *const c_void,
+                malloc_callback(callback)? as *mut c_void
+            )
+        }))
     }
 
     pub fn hook_timer(

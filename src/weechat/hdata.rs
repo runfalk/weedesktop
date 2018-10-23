@@ -1,6 +1,6 @@
+use super::{Plugin, Result};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
-use super::{Plugin, Result};
 
 #[derive(Clone, Debug)]
 pub struct Hdata<'a> {
@@ -30,7 +30,11 @@ pub enum HdataValue<'a> {
 }
 
 impl<'a> Hdata<'a> {
-    pub(crate) fn new(plugin: &'a Plugin, hdata_ptr: *mut ::ffi::t_hdata, data_ptr: *mut c_void) -> Self {
+    pub(crate) fn new(
+        plugin: &'a Plugin,
+        hdata_ptr: *mut ::ffi::t_hdata,
+        data_ptr: *mut c_void,
+    ) -> Self {
         Self {
             plugin,
             hdata_ptr,
