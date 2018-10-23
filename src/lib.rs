@@ -10,9 +10,9 @@ mod ffi;
 mod platform;
 mod weechat;
 
-use std::time::Duration;
-use weechat::{CallResult, HdataValue, Plugin, Result};
 use platform::screensaver_is_active;
+use std::time::Duration;
+use weechat::{Buffer, CallResult, Plugin};
 
 #[plugin_info]
 pub static NAME: &str = "weedesktop";
@@ -25,26 +25,28 @@ pub static VERSION: &str = "0.1";
 #[plugin_info]
 pub static LICENSE: &str = "MIT";
 
-
-fn is_away(plugin: &Plugin) -> Result<bool> {
-    // TODO: We actually only check one server
-    let hdata = plugin.hdata_get("irc_server").ok().ok_or(())?;
-    let irc_server = hdata.bind_list("irc_servers")?;
-    match irc_server.get("is_away") {
-        HdataValue::Int(r) => Ok(r != 0),
-        _ => Err(()),
-    }
-}
-
 fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
-    let is_away = is_away(plugin)?;
-    if let Ok(screensaver_on) = screensaver_is_active() {
-        let buffer = plugin.buffer_search_main().ok_or(())?;
-        if !is_away && screensaver_on {
-            buffer.command("/allserv away Away")?;
-        } else if is_away && !screensaver_on {
-            // Remove away status
-            buffer.command("/allserv away")?;
+    let screensaver_on = match screensaver_is_active() {
+        Ok(is_on) => is_on,
+        Err(_) => return Ok(()),
+    };
+
+    for irc_server in plugin
+        .hdata_from_list("irc_server", "irc_servers")?
+        .try_iter()?
+    {
+        let is_away = match irc_server.get_i32("is_away") {
+            Ok(away) => away != 0,
+            Err(_) => continue,
+        };
+        if let Ok(buffer_hdata) = irc_server.get_hdata("buffer") {
+            let buffer = Buffer::from_hdata(&buffer_hdata);
+            if !is_away && screensaver_on {
+                buffer.command("/away away").ok();
+            } else if is_away && !screensaver_on {
+                // Remove away status
+                buffer.command("/away").ok();
+            }
         }
     }
     Ok(())

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ffi;
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
@@ -25,21 +27,25 @@ pub struct Buffer<'a> {
 #[derive(Clone, Debug)]
 pub struct Hdata<'a> {
     plugin: &'a Plugin,
-    ptr: *mut ffi::t_hdata,
+    hdata_ptr: *mut ffi::t_hdata,
+    data_ptr: *mut c_void,
 }
 
-pub struct BoundHdata<'a> {
-    hdata: Hdata<'a>,
-    ptr: *mut c_void,
+#[derive(Clone, Debug)]
+pub struct HdataIterator<'a> {
+    next_hdata: Option<Hdata<'a>>,
+    next_key: &'a CStr,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum HdataValue<'a> {
-    Char(u8),
-    Int(i32),
-    Long(i64),
+    Other(*mut c_void),
+    I8(i8),
+    I32(i32),
+    I64(i64),
     Str(&'a CStr),
     Ptr(*mut c_void),
+    Hdata(Hdata<'a>),
     Time(libc::time_t),
     Hashtable(*mut ffi::t_hashtable), // TODO: Implement Hashtable as type
     None,
@@ -47,8 +53,8 @@ pub enum HdataValue<'a> {
 
 macro_rules! call_attr {
     ($ptr:expr, $attr:ident $(,$arg:expr)*) => {
-        match unsafe { (*$ptr).$attr } {
-            Some(f) => unsafe { f($($arg),*) },
+        match (*$ptr).$attr {
+            Some(f) => f($($arg),*),
             None => unreachable!(),
         }
     };
@@ -71,146 +77,258 @@ impl<'a> Buffer<'a> {
         Self { plugin, ptr }
     }
 
+    pub fn from_hdata(hdata: &'a Hdata) -> Self {
+        Self {
+            plugin: hdata.plugin,
+            ptr: hdata.data_ptr as *mut ffi::t_gui_buffer,
+        }
+    }
+
     pub fn command(&self, cmd: &str) -> CallResult {
         let ccmd = CString::new(cmd).unwrap();
-        match call_attr!(
-            self.plugin.ptr,
-            command,
-            self.plugin.ptr,
-            self.ptr,
-            ccmd.as_ptr()
-        ) {
+        let result = unsafe {
+            call_attr!(
+                self.plugin.ptr,
+                command,
+                self.plugin.ptr,
+                self.ptr,
+                ccmd.as_ptr()
+            )
+        };
+        match result {
             ffi::WEECHAT_RC_OK => Ok(()),
             ffi::WEECHAT_RC_ERROR => Err(()),
             _ => unreachable!(),
         }
     }
 
-    pub fn hdata(&self) -> Result<BoundHdata> {
+    pub fn hdata(&self) -> Result<Hdata> {
         Ok(self
             .plugin
-            .hdata_get("buffer")?
-            .bind(self.ptr as *mut c_void))
+            .hdata_from_ptr("buffer", self.ptr as *mut c_void)?)
     }
 }
 
 impl<'a> Hdata<'a> {
-    fn new(plugin: &'a Plugin, ptr: *mut ffi::t_hdata) -> Self {
-        Self { plugin, ptr }
-    }
-
-    pub fn bind_list(&self, list_name: &str) -> Result<BoundHdata> {
-        let clname = CString::new(list_name).or(Err(()))?;
-        let ptr = try_ptr!(call_attr!(
-            self.plugin.ptr,
-            hdata_get_list,
-            self.ptr,
-            clname.as_ptr()
-        ));
-        Ok(self.bind(ptr as *mut c_void))
-    }
-
-    pub fn bind(&self, ptr: *mut c_void) -> BoundHdata<'a> {
-        BoundHdata {
-            hdata: self.clone(),
-            ptr,
+    fn new(plugin: &'a Plugin, hdata_ptr: *mut ffi::t_hdata, data_ptr: *mut c_void) -> Self {
+        Self {
+            plugin,
+            hdata_ptr,
+            data_ptr,
         }
     }
 
-    fn get_type(&self, name: &str) -> i32 {
-        let cname = match CString::new(name) {
-            Ok(cstr) => cstr,
-            Err(_) => return -1,
-        };
-        call_attr!(
-            self.plugin.ptr,
-            hdata_get_var_type,
-            self.ptr,
-            cname.as_ptr()
-        )
+    fn get_type_from_cstr(&self, cname: &CStr) -> i32 {
+        unsafe {
+            call_attr!(
+                self.plugin.ptr,
+                hdata_get_var_type,
+                self.hdata_ptr,
+                cname.as_ptr()
+            )
+        }
     }
-}
 
-impl<'a> BoundHdata<'a> {
+    fn get_from_cstr(&self, cname: &CStr) -> HdataValue<'a> {
+        match self.get_type_from_cstr(cname) {
+            ffi::WEECHAT_HDATA_OTHER => {
+                let ptr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_get_var,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::Other(ptr)
+            },
+            ffi::WEECHAT_HDATA_CHAR => {
+                let chr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_char,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::I8(chr)
+            },
+            ffi::WEECHAT_HDATA_INTEGER => {
+                let int = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_integer,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::I32(int)
+            },
+            ffi::WEECHAT_HDATA_LONG => {
+                let long = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_long,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::I64(long)
+            },
+            ffi::WEECHAT_HDATA_STRING | ffi::WEECHAT_HDATA_SHARED_STRING => {
+                let char_ptr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_string,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::Str(unsafe { CStr::from_ptr(char_ptr) })
+            },
+            ffi::WEECHAT_HDATA_POINTER => {
+                let ptr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_pointer,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                if ptr == ptr::null_mut() {
+                    return HdataValue::None;
+                }
+                let hdata_name_ptr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_get_var_hdata,
+                        self.hdata_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                if hdata_name_ptr == ptr::null_mut() {
+                    return HdataValue::Ptr(ptr);
+                }
+                let hdata_cname = unsafe { CStr::from_ptr(hdata_name_ptr) };
+                match self
+                    .plugin
+                    .hdata_from_ptr(hdata_cname.to_str().unwrap(), ptr)
+                {
+                    Ok(h) => HdataValue::Hdata(h),
+                    Err(_) => HdataValue::None,
+                }
+            },
+            ffi::WEECHAT_HDATA_TIME => {
+                let time = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_time,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::Time(time)
+            },
+            ffi::WEECHAT_HDATA_HASHTABLE => {
+                let hashtable_ptr = unsafe {
+                    call_attr!(
+                        self.plugin.ptr,
+                        hdata_hashtable,
+                        self.hdata_ptr,
+                        self.data_ptr,
+                        cname.as_ptr()
+                    )
+                };
+                HdataValue::Hashtable(hashtable_ptr)
+            },
+            _ => HdataValue::None,
+        }
+    }
+
     pub fn get(&self, name: &str) -> HdataValue {
         let cname = match CString::new(name) {
             Ok(cstr) => cstr,
             Err(_) => return HdataValue::None,
         };
-        // TODO: Support all types
-        match self.hdata.get_type(name) {
-            ffi::WEECHAT_HDATA_CHAR => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_char,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Char(r as u8)
-            },
-            ffi::WEECHAT_HDATA_INTEGER => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_integer,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Int(r)
-            },
-            ffi::WEECHAT_HDATA_LONG => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_long,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Long(r)
-            },
-            ffi::WEECHAT_HDATA_STRING | ffi::WEECHAT_HDATA_SHARED_STRING => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_string,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Str(unsafe { CStr::from_ptr(r) })
-            },
-            ffi::WEECHAT_HDATA_POINTER | ffi::WEECHAT_HDATA_OTHER => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_pointer,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Ptr(r)
-            },
-            ffi::WEECHAT_HDATA_TIME => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_time,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Time(r)
-            },
-            ffi::WEECHAT_HDATA_HASHTABLE => {
-                let r = call_attr!(
-                    self.hdata.plugin.ptr,
-                    hdata_hashtable,
-                    self.hdata.ptr,
-                    self.ptr,
-                    cname.as_ptr()
-                );
-                HdataValue::Hashtable(r)
-            },
-            _ => HdataValue::None,
+        self.get_from_cstr(cname.as_c_str())
+    }
+
+    pub fn get_i8(&self, name: &str) -> Result<i8> {
+        match self.get(name) {
+            HdataValue::I8(v) => Ok(v),
+            _ => Err(()),
         }
+    }
+
+    pub fn get_i32(&self, name: &str) -> Result<i32> {
+        match self.get(name) {
+            HdataValue::I32(v) => Ok(v),
+            _ => Err(()),
+        }
+    }
+
+    pub fn get_i64(&self, name: &str) -> Result<i64> {
+        match self.get(name) {
+            HdataValue::I64(v) => Ok(v),
+            _ => Err(()),
+        }
+    }
+
+    pub fn get_cstr(&'a self, name: &str) -> Result<&'a CStr> {
+        match self.get(name) {
+            HdataValue::Str(v) => Ok(&v),
+            _ => Err(()),
+        }
+    }
+
+    pub fn get_str(&'a self, name: &str) -> Result<&'a str> {
+        self.get_cstr(name)?.to_str().or(Err(()))
+    }
+
+    pub fn get_hdata(&'a self, name: &str) -> Result<Hdata<'a>> {
+        match self.get(name) {
+            HdataValue::Hdata(v) => Ok(v),
+            _ => Err(()),
+        }
+    }
+
+    pub fn try_iter(&self) -> Result<HdataIterator<'a>> {
+        let cnext = CString::new("var_next").or(Err(()))?;
+        let var_next = unsafe {
+            CStr::from_ptr(try_ptr!(call_attr!(
+                self.plugin.ptr,
+                hdata_get_string,
+                self.hdata_ptr,
+                cnext.as_ptr()
+            )))
+        };
+
+        Ok(HdataIterator {
+            next_hdata: Some(self.clone()),
+            next_key: &var_next,
+        })
+    }
+}
+
+impl<'a> Iterator for HdataIterator<'a> {
+    type Item = Hdata<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next_hdata.take();
+        if let Some(ref c) = current {
+            self.next_hdata = match c.get_from_cstr(self.next_key) {
+                HdataValue::Hdata(hdata) => Some(hdata),
+                _ => None,
+            };
+        };
+        current
     }
 }
 
@@ -240,14 +358,16 @@ impl Plugin {
 
     pub fn print(&self, msg: &str) {
         let cmsg = CString::new(msg).unwrap();
-        call_attr!(
-            self.ptr,
-            printf_date_tags,
-            ptr::null_mut(),
-            0,
-            ptr::null(),
-            cmsg.as_ptr()
-        );
+        unsafe {
+            call_attr!(
+                self.ptr,
+                printf_date_tags,
+                ptr::null_mut(),
+                0,
+                ptr::null(),
+                cmsg.as_ptr()
+            );
+        }
     }
 
     pub fn debug_print(&self, level: i32, msg: &str) {
@@ -275,21 +395,23 @@ impl Plugin {
             *callback_ptr = callback;
         }
 
-        Ok(try_ptr!(call_attr!(
-            self.ptr,
-            hook_timer,
-            self.ptr,
-            (1000 * interval.as_secs() + interval.subsec_millis() as u64) as i64,
-            0,
-            max_calls,
-            Some(hook_timer_callback),
-            self.ptr as *const c_void,
-            callback_ptr as *mut c_void
-        )))
+        Ok(try_ptr!(unsafe {
+            call_attr!(
+                self.ptr,
+                hook_timer,
+                self.ptr,
+                (1000 * interval.as_secs() + interval.subsec_millis() as u64) as i64,
+                0,
+                max_calls,
+                Some(hook_timer_callback),
+                self.ptr as *const c_void,
+                callback_ptr as *mut c_void
+            )
+        }))
     }
 
     pub fn buffer_search_main(&self) -> Option<Buffer> {
-        let ptr = call_attr!(self.ptr, buffer_search_main);
+        let ptr = unsafe { call_attr!(self.ptr, buffer_search_main) };
         if ptr.is_null() {
             None
         } else {
@@ -297,9 +419,21 @@ impl Plugin {
         }
     }
 
-    pub fn hdata_get(&self, name: &str) -> Result<Hdata> {
+    fn hdata_ptr(&self, name: &str) -> Result<*mut ffi::t_hdata> {
         let cname = CString::new(name).or(Err(()))?;
-        let hdata_ptr = try_ptr!(call_attr!(self.ptr, hdata_get, self.ptr, cname.as_ptr()));
-        Ok(Hdata::new(&self, hdata_ptr))
+        let ptr = unsafe { call_attr!(self.ptr, hdata_get, self.ptr, cname.as_ptr()) };
+        Ok(try_ptr!(ptr))
+    }
+
+    pub fn hdata_from_ptr(&self, name: &str, data_ptr: *mut c_void) -> Result<Hdata> {
+        Ok(Hdata::new(&self, self.hdata_ptr(name)?, data_ptr))
+    }
+
+    pub fn hdata_from_list(&self, name: &str, list: &str) -> Result<Hdata> {
+        let hdata_ptr = self.hdata_ptr(name)?;
+        let clist = CString::new(list).or(Err(()))?;
+        let data_ptr =
+            try_ptr!(unsafe { call_attr!(self.ptr, hdata_get_list, hdata_ptr, clist.as_ptr()) });
+        Ok(Hdata::new(&self, hdata_ptr, data_ptr))
     }
 }
