@@ -5,8 +5,11 @@ use std::ffi::{c_void, CStr, CString};
 use std::ptr;
 use std::time::Duration;
 
+mod callbacks;
 #[macro_use]
 mod macros;
+
+use self::callbacks::TimerHook;
 
 pub type Result<T> = std::result::Result<T, ()>;
 
@@ -18,8 +21,6 @@ pub struct Plugin {
 }
 
 type Hook = *mut ffi::t_hook;
-
-type TimerHook = fn(&Plugin, i32) -> CallResult;
 
 #[derive(Clone, Debug)]
 pub struct Buffer<'a> {
@@ -314,24 +315,6 @@ impl<'a> Iterator for HdataIterator<'a> {
     }
 }
 
-pub extern "C" fn hook_timer_callback(
-    ptr: *const c_void,
-    data: *mut c_void,
-    remaining_calls: i32,
-) -> i32 {
-    if data.is_null() {
-        return ffi::WEECHAT_RC_ERROR;
-    }
-
-    let callback = unsafe { *(data as *mut TimerHook) };
-    match callback(
-        &Plugin::new(ptr as *mut ffi::t_weechat_plugin),
-        remaining_calls,
-    ) {
-        Ok(_) => ffi::WEECHAT_RC_OK,
-        Err(_) => ffi::WEECHAT_RC_ERROR,
-    }
-}
 
 impl Plugin {
     pub fn new(ptr: *mut ffi::t_weechat_plugin) -> Self {
@@ -385,7 +368,7 @@ impl Plugin {
                 (1000 * interval.as_secs() + interval.subsec_millis() as u64) as i64,
                 0,
                 max_calls,
-                Some(hook_timer_callback),
+                Some(callbacks::hook_timer),
                 self.ptr as *const c_void,
                 callback_ptr as *mut c_void
             )
