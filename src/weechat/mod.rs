@@ -28,19 +28,34 @@ type Hook = *mut ffi::t_hook;
 #[derive(Clone, Debug)]
 pub struct Buffer<'a> {
     plugin: &'a Plugin,
+    hdata: Hdata<'a>,
     ptr: *mut ffi::t_gui_buffer,
 }
 
 impl<'a> Buffer<'a> {
-    fn new(plugin: &'a Plugin, ptr: *mut ffi::t_gui_buffer) -> Self {
-        Self { plugin, ptr }
-    }
-
-    pub fn from_hdata(hdata: &'a Hdata) -> Self {
-        Self {
+    pub fn try_from_hdata(hdata: Hdata<'a>) -> Result<Self> {
+        let buffer_list = hdata.plugin.hdata_from_list("buffer", "gui_buffers")?;
+        if unsafe {
+            call_attr!(
+                hdata.plugin.ptr,
+                hdata_check_pointer,
+                buffer_list.hdata_ptr,
+                buffer_list.data_ptr,
+                hdata.data_ptr
+            )
+        } == 0
+        {
+            return Err(());
+        }
+        Ok(Self {
             plugin: hdata.plugin,
             ptr: hdata.data_ptr as *mut ffi::t_gui_buffer,
-        }
+            hdata,
+        })
+    }
+
+    pub fn get_name(&'a self) -> Result<&'a str> {
+        self.hdata.get_str("name")
     }
 
     pub fn command(&self, cmd: &str) -> CallResult {
@@ -61,10 +76,18 @@ impl<'a> Buffer<'a> {
         }
     }
 
-    pub fn hdata(&self) -> Result<Hdata> {
-        Ok(self
-            .plugin
-            .hdata_from_ptr("buffer", self.ptr as *mut c_void)?)
+    pub fn print(&self, msg: &str) {
+        let cmsg = CString::new(msg).unwrap();
+        unsafe {
+            call_attr!(
+                self.plugin.ptr,
+                printf_date_tags,
+                self.ptr,
+                0,
+                ptr::null(),
+                cmsg.as_ptr()
+            );
+        }
     }
 }
 
@@ -156,10 +179,15 @@ impl Plugin {
     pub fn buffer_search_main(&self) -> Option<Buffer> {
         let ptr = unsafe { call_attr!(self.ptr, buffer_search_main) };
         if ptr.is_null() {
-            None
-        } else {
-            Some(Buffer::new(&self, ptr))
+            return None;
         }
+
+        let hdata = match self.hdata_from_ptr("buffer", ptr as *mut c_void).ok() {
+            Some(h) => h,
+            None => return None,
+        };
+
+        Buffer::try_from_hdata(hdata).ok()
     }
 
     fn hdata_ptr(&self, name: &str) -> Result<*mut ffi::t_hdata> {

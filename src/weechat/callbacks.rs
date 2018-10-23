@@ -1,4 +1,4 @@
-use super::{CallResult, Hdata, Plugin, Result};
+use super::{Buffer, CallResult, Plugin, Result};
 use std::ffi::{c_void, CStr};
 
 macro_rules! try_unwrap {
@@ -10,7 +10,7 @@ macro_rules! try_unwrap {
     };
 }
 
-pub type CommandHook = fn(&Plugin, buffer: Hdata, cmd: &str, args: Vec<&str>) -> CallResult;
+pub type CommandHook = fn(&Plugin, buffer: Buffer, cmd: &str, args: Vec<&str>) -> CallResult;
 pub type TimerHook = fn(&Plugin, i32) -> CallResult;
 
 pub fn malloc_callback<T>(callback: T) -> Result<*mut T> {
@@ -42,6 +42,7 @@ pub extern "C" fn hook_command(
 
     let plugin = Plugin::new(ptr as *mut ::ffi::t_weechat_plugin);
     let hdata = try_unwrap!(plugin.hdata_from_ptr("buffer", buffer as *mut c_void));
+    let buffer = try_unwrap!(Buffer::try_from_hdata(hdata));
     let cmd = try_unwrap!(unsafe { CStr::from_ptr(*argv).to_str() });
 
     // Since the first arg is the command name we start at 1 here
@@ -54,7 +55,7 @@ pub extern "C" fn hook_command(
     }
 
     let callback = unsafe { *(data as *mut CommandHook) };
-    match callback(&plugin, hdata, cmd, args) {
+    match callback(&plugin, buffer, cmd, args) {
         Ok(_) => ::ffi::WEECHAT_RC_OK,
         Err(_) => ::ffi::WEECHAT_RC_ERROR,
     }

@@ -12,7 +12,7 @@ mod weechat;
 
 use platform::screensaver_is_active;
 use std::time::Duration;
-use weechat::{Buffer, CallResult, Hdata, Plugin};
+use weechat::{Buffer, CallResult, Plugin};
 
 #[plugin_info]
 pub static NAME: &str = "weedesktop";
@@ -40,7 +40,7 @@ fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
             Err(_) => continue,
         };
         if let Ok(buffer_hdata) = irc_server.get_hdata("buffer") {
-            let buffer = Buffer::from_hdata(&buffer_hdata);
+            let buffer = Buffer::try_from_hdata(buffer_hdata)?;
             if !is_away && screensaver_on {
                 buffer.command("/away away").ok();
             } else if is_away && !screensaver_on {
@@ -52,8 +52,8 @@ fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
     Ok(())
 }
 
-fn open_url(plugin: &Plugin, _buffer: Hdata, _cmd: &str, _args: Vec<&str>) -> CallResult {
-    plugin.print("SUCCESS");
+fn open_url(_plugin: &Plugin, buffer: Buffer, _cmd: &str, _args: Vec<&str>) -> CallResult {
+    buffer.print(buffer.get_name()?);
     Ok(())
 }
 
