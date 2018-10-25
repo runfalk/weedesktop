@@ -97,15 +97,15 @@ impl<'a> Buffer<'a> {
 
     pub fn iter_lines_from_top(&self) -> Result<LineIterator<'a>> {
         Ok(LineIterator {
-            next_key: "prev_line".to_owned(),
-            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("last_line").ok(),
+            next_key: "next_line".to_owned(),
+            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("first_line").ok(),
         })
     }
 
     pub fn iter_lines_from_bottom(&self) -> Result<LineIterator<'a>> {
         Ok(LineIterator {
-            next_key: "next_line".to_owned(),
-            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("first_line").ok(),
+            next_key: "prev_line".to_owned(),
+            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("last_line").ok(),
         })
     }
 }
