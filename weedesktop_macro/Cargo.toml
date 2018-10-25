@@ -7,9 +7,8 @@ authors = ["Andreas Runfalk <andreas@runfalk.se>"]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "*"
-quote = "*"
-syn = { version = "*", features = ["full"] }
+quote = "^0.6.8"
+syn = { version = "^0.15.13", features = ["full"] }
 
 [build-dependencies]
-bindgen = "*"
+bindgen = "^0.43.0"

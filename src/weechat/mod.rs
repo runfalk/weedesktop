@@ -127,7 +127,6 @@ impl<'a> Iterator for LineIterator<'a> {
     }
 }
 
-
 impl Plugin {
     pub fn new(ptr: *mut ffi::t_weechat_plugin) -> Self {
         Self { ptr }

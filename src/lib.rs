@@ -3,6 +3,8 @@ extern crate cfg_if;
 #[cfg(all(unix, not(target_os = "macos")))]
 extern crate dbus;
 extern crate libc;
+extern crate linkify;
+extern crate open;
 #[macro_use]
 extern crate weedesktop_macro;
 
@@ -10,6 +12,7 @@ mod ffi;
 mod platform;
 mod weechat;
 
+use linkify::{LinkFinder, LinkKind};
 use platform::screensaver_is_active;
 use std::time::Duration;
 use weechat::{Buffer, CallResult, Plugin};
@@ -52,10 +55,12 @@ fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
     Ok(())
 }
 
-fn open_url(plugin: &Plugin, buffer: Buffer, _cmd: &str, _args: Vec<&str>) -> CallResult {
-    // TODO: Actually look for links
-    for line in buffer.iter_lines_from_bottom()?.take(1) {
-        plugin.print(&format!("Latest line is: {}", line));
+fn open_url(_plugin: &Plugin, buffer: Buffer, _cmd: &str, _args: Vec<&str>) -> CallResult {
+    for line in buffer.iter_lines_from_bottom()?.take(50) {
+        if let Some(link) = LinkFinder::new().kinds(&[LinkKind::Url]).links(line).next() {
+            open::that(link.as_str()).or(Err(()))?;
+            break;
+        }
     }
     Ok(())
 }
