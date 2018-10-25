@@ -27,13 +27,19 @@ type Hook = *mut ffi::t_hook;
 
 #[derive(Clone, Debug)]
 pub struct Buffer<'a> {
-    plugin: &'a Plugin,
     hdata: Hdata<'a>,
     ptr: *mut ffi::t_gui_buffer,
 }
 
+#[derive(Clone, Debug)]
+pub struct LineIterator<'a> {
+    next_key: String,
+    next_hdata: Option<Hdata<'a>>,
+}
+
 impl<'a> Buffer<'a> {
     pub fn try_from_hdata(hdata: Hdata<'a>) -> Result<Self> {
+        // Check if the pointer is a gui buffer pointer
         let buffer_list = hdata.plugin.hdata_from_list("buffer", "gui_buffers")?;
         if unsafe {
             call_attr!(
@@ -48,13 +54,12 @@ impl<'a> Buffer<'a> {
             return Err(());
         }
         Ok(Self {
-            plugin: hdata.plugin,
             ptr: hdata.data_ptr as *mut ffi::t_gui_buffer,
             hdata,
         })
     }
 
-    pub fn get_name(&'a self) -> Result<&'a str> {
+    pub fn get_name(&self) -> Result<&'a str> {
         self.hdata.get_str("name")
     }
 
@@ -62,9 +67,9 @@ impl<'a> Buffer<'a> {
         let ccmd = CString::new(cmd).unwrap();
         let result = unsafe {
             call_attr!(
-                self.plugin.ptr,
+                self.hdata.plugin.ptr,
                 command,
-                self.plugin.ptr,
+                self.hdata.plugin.ptr,
                 self.ptr,
                 ccmd.as_ptr()
             )
@@ -80,7 +85,7 @@ impl<'a> Buffer<'a> {
         let cmsg = CString::new(msg).unwrap();
         unsafe {
             call_attr!(
-                self.plugin.ptr,
+                self.hdata.plugin.ptr,
                 printf_date_tags,
                 self.ptr,
                 0,
@@ -89,7 +94,39 @@ impl<'a> Buffer<'a> {
             );
         }
     }
+
+    pub fn iter_lines_from_top(&self) -> Result<LineIterator<'a>> {
+        Ok(LineIterator {
+            next_key: "prev_line".to_owned(),
+            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("last_line").ok(),
+        })
+    }
+
+    pub fn iter_lines_from_bottom(&self) -> Result<LineIterator<'a>> {
+        Ok(LineIterator {
+            next_key: "next_line".to_owned(),
+            next_hdata: self.hdata.get_hdata("lines")?.get_hdata("first_line").ok(),
+        })
+    }
 }
+
+impl<'a> Iterator for LineIterator<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next_hdata.take();
+        self.next_hdata = match current {
+            Some(ref c) => c.get_hdata(&self.next_key).ok(),
+            None => None,
+        };
+
+        if let Some(c) = current {
+            Some(c.get_hdata("data").unwrap().get_str("message").unwrap())
+        } else {
+            None
+        }
+    }
+}
+
 
 impl Plugin {
     pub fn new(ptr: *mut ffi::t_weechat_plugin) -> Self {

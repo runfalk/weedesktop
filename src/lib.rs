@@ -52,8 +52,11 @@ fn check_screensaver(plugin: &Plugin, _remaining_calls: i32) -> CallResult {
     Ok(())
 }
 
-fn open_url(_plugin: &Plugin, buffer: Buffer, _cmd: &str, _args: Vec<&str>) -> CallResult {
-    buffer.print(buffer.get_name()?);
+fn open_url(plugin: &Plugin, buffer: Buffer, _cmd: &str, _args: Vec<&str>) -> CallResult {
+    // TODO: Actually look for links
+    for line in buffer.iter_lines_from_bottom()?.take(1) {
+        plugin.print(&format!("Latest line is: {}", line));
+    }
     Ok(())
 }
 

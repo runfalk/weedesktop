@@ -176,7 +176,7 @@ impl<'a> Hdata<'a> {
         }
     }
 
-    pub fn get(&self, name: &str) -> HdataValue {
+    pub fn get(&self, name: &str) -> HdataValue<'a> {
         let cname = match CString::new(name) {
             Ok(cstr) => cstr,
             Err(_) => return HdataValue::None,
@@ -205,18 +205,18 @@ impl<'a> Hdata<'a> {
         }
     }
 
-    pub fn get_cstr(&'a self, name: &str) -> Result<&'a CStr> {
+    pub fn get_cstr(&self, name: &str) -> Result<&'a CStr> {
         match self.get(name) {
             HdataValue::Str(v) => Ok(&v),
             _ => Err(()),
         }
     }
 
-    pub fn get_str(&'a self, name: &str) -> Result<&'a str> {
+    pub fn get_str(&self, name: &str) -> Result<&'a str> {
         self.get_cstr(name)?.to_str().or(Err(()))
     }
 
-    pub fn get_hdata(&'a self, name: &str) -> Result<Hdata<'a>> {
+    pub fn get_hdata(&self, name: &str) -> Result<Hdata<'a>> {
         match self.get(name) {
             HdataValue::Hdata(v) => Ok(v),
             _ => Err(()),
